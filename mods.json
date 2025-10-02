@@ -10,6 +10,12 @@
             "type": "curseforge",
             "project-id": 223628,
             "file-id": 2227552
+        },
+        "applecore": {
+            "name": "AppleCore",
+            "type": "modrinth",
+            "project-id": "c3I7Akgu",
+            "file-id": "5u2XT9ic"
         }
     }
 }
