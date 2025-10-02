@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const cf = require("curseforge-api");
 
 console.log("Running pack.js..");
-const client = new cf.CurseForgeClient('$2a$10$bL4bIL5pUWqfcO7KQtnMReakwtfHbNKh6v1uTpKlzhwoueEJQnPnm');
+const text = fs.readFileSync('./cf-key.txt', 'utf8');
+const client = new cf.CurseForgeClient(text);
 
 const file = JSON.parse(fs.readFileSync('./mods.json', 'utf8'));
 
