@@ -1,4 +1,5 @@
 /node_modules/*
 /mods/*
+/config/*
 package.json
 package-lock.json

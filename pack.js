@@ -8,6 +8,41 @@ const client = new cf.CurseForgeClient('$2a$10$bL4bIL5pUWqfcO7KQtnMReakwtfHbNKh6
 
 const file = JSON.parse(fs.readFileSync('./mods.json', 'utf8'));
 
+var mods = [];
+const packwizFolder = "./mods";
+const fileDirectorFolder = "./config/mod-director"
+
+function removeDirAsync(dirPath) {
+  return new Promise((resolve, reject) => {
+    fs.rm(dirPath, { recursive: true, force: true }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function mkdirAsync(dirPath) {
+  return new Promise((resolve, reject) => {
+    fs.mkdir(dirPath, { recursive: true }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+async function resetFolder(dirPath) {
+  try {
+    await removeDirAsync(dirPath);
+    await mkdirAsync(dirPath);
+    console.log(`Folder '${dirPath}' is now clean.`);
+  } catch (err) {
+    console.error('Error resetting folder:', err);
+  }
+}
+
+resetFolder(packwizFolder);
+resetFolder(fileDirectorFolder);
+
 async function getCurseDownloadLink(pID, fID) {
   let file = await client.getModFileDownloadURL(pID, fID);
   return file;
@@ -23,7 +58,6 @@ async function getModrinthDownloadLink(fID) {
   });
   return file;
 }
-
 
 async function getJsonFromUrl(url) {
   return new Promise((resolve, reject) => {
@@ -92,10 +126,6 @@ function write(filePath, fileContent) {
   });
 }
 
-const mods = [];
-const packwizFolder = "./mods";
-const fileDirectorFolder = "/config/mod-director"
-
 function parseFile() {
   Object.entries(file.mods).forEach(([key, mod]) => {
     let isClientMod = false;
@@ -103,14 +133,40 @@ function parseFile() {
       isClientMod = mod.client;
     }
     if (mod.type == "github") {
-      mods.push({ key: key, name: mod.name, type: mod.type, link: mod.link, client: isClientMod });
+      mods.push({ key: key, name: mod.name, type: mod.type, link: mod.link, client: isClientMod, fileName: null, hash: null, url: null });
     } else if (mod.type == "curseforge" || mod.type == "modrinth") {
-      mods.push({ key: key, name: mod.name, type: mod.type, pID: mod["project-id"], fID: mod["file-id"], client: isClientMod });
+      mods.push({ key: key, name: mod.name, type: mod.type, pID: mod["project-id"], fID: mod["file-id"], client: isClientMod, fileName: null, hash: null, url: null });
     }
   });
 }
 parseFile();
 
+async function generateData() {
+  if (!Array.isArray(mods)) {
+    throw new Error("mods must be an array");
+  }
+
+  for (let i = 0; i < mods.length; i++) {
+    const mod = mods[i];
+    if (!mod) continue; // skip undefined entries
+
+    let url = "";
+    if (mod.type === "github") {
+      url = mod.link;
+    } else if (mod.type === "curseforge") {
+      url = await getCurseDownloadLink(mod.pID, mod.fID);
+    } else {
+      url = await getModrinthDownloadLink(mod.fID);
+    }
+
+    const fileName = await getFileNameFromUrl(url);
+    const hash = await getFileSha256FromUrl(url);
+
+    mods[i]["fileName"] = fileName;
+    mods[i]["hash"] = hash;
+    mods[i]["url"] = url;
+  }
+}
 
 async function generatePackwiz() {
   for (const mod of mods) {
@@ -123,26 +179,14 @@ async function generatePackwiz() {
 
     fileC.push(`name = "${mod.name}"`);
 
-    let url = "";
-    if (mod.type === "github") {
-      url = mod.link;
-    } else if (mod.type === "curseforge") {
-      url = await getCurseDownloadLink(mod.pID, mod.fID);
-    } else {
-      url = await getModrinthDownloadLink(mod.fID);
-    }
-
-    let fileName = await getFileNameFromUrl(url);
-    let hash = await getFileSha256FromUrl(url);
-
-    fileC.push(`filename = "${fileName}"`);
+    fileC.push(`filename = "${mod.fileName}"`);
     fileC.push(`side = "${clientString}"`);
     fileC.push('');
     fileC.push('[download]')
     fileC.push('hash-format = "sha256"')
-    fileC.push(`hash = "${hash}"`)
+    fileC.push(`hash = "${mod.hash}"`)
     if (mod.type == "github" || mod.type == "modrinth") {
-      fileC.push(`url = "${url}"`)
+      fileC.push(`url = "${mod.url}"`)
     } else if (mod.type == "curseforge") {
       fileC.push('mode = "metadata:curseforge"')
     }
@@ -150,7 +194,7 @@ async function generatePackwiz() {
       fileC.push('')
       fileC.push('[update]')
       fileC.push(`[update.${mod.type}]`)
-      if(mod.type == "curseforge") {
+      if (mod.type == "curseforge") {
         fileC.push(`file-id = ${mod.fID}`)
         fileC.push(`project-id = ${mod.pID}`)
       } else {
@@ -162,4 +206,51 @@ async function generatePackwiz() {
     await write(`${packwizFolder}/${mod.key}.pw.toml`, fileC.join("\n"));
   }
 }
-generatePackwiz();
+
+async function generateFileDirector() {
+  const modBundle = {
+    url: [],
+    curse: [],
+    modrinth: []
+  };
+  for (const mod of mods) {
+    let modEntry = {};
+    let installation = {
+      continueOnFailedDownload: false,
+      selectedByDefault: true,
+      name: mod.name
+    };
+    let meta = {
+      hash: {
+        "SHA-256": mod.hash
+      }
+    };
+    if (mod.client) {
+      meta.side = "CLIENT";
+    }
+    if (mod.type == "github") {
+      modEntry.url = mod.url;
+    } else if (mod.type == "curseforge" || mod.type == "modrinth") {
+      modEntry.addonId = mod.pID;
+      modEntry.fileId = mod.fID;
+    }
+    modEntry.installationPolicy = installation;
+    modEntry.metadata = meta;
+    if (mod.type === "github") {
+      modBundle.url.push(modEntry);
+    } else if (mod.type === "curseforge") {
+      modBundle.curse.push(modEntry);
+    } else if (mod.type === "modrinth") {
+      modBundle.modrinth.push(modEntry);
+    }
+  }
+  const formatedJSON = JSON.stringify(modBundle, null, 2);
+  write(fileDirectorFolder + "/mods.bundle.json", formatedJSON)
+}
+
+async function main() {
+  await generateData();
+  await generatePackwiz();
+  await generateFileDirector();
+}
+main();
