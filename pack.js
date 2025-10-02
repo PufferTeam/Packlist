@@ -6,12 +6,33 @@ const cf = require("curseforge-api");
 console.log("Running pack.js..");
 const text = fs.readFileSync('./cf-key.txt', 'utf8');
 const client = new cf.CurseForgeClient(text);
-
 const file = JSON.parse(fs.readFileSync('./mods.json', 'utf8'));
 
 var mods = [];
 const packwizFolder = "./mods";
+const downloadFolder = "./download";
 const fileDirectorFolder = "./config/mod-director"
+
+async function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+
+    https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Request failed: ${response.statusCode}`));
+        return;
+      }
+
+      response.pipe(file);
+
+      file.on("finish", () => {
+        file.close(resolve);
+      });
+    }).on("error", (err) => {
+      fs.unlink(dest, () => reject(err));
+    });
+  });
+}
 
 function removeDirAsync(dirPath) {
   return new Promise((resolve, reject) => {
@@ -43,6 +64,7 @@ async function resetFolder(dirPath) {
 
 resetFolder(packwizFolder);
 resetFolder(fileDirectorFolder);
+resetFolder(downloadFolder);
 
 async function getCurseDownloadLink(pID, fID) {
   let file = await client.getModFileDownloadURL(pID, fID);
@@ -255,3 +277,32 @@ async function main() {
   await generateFileDirector();
 }
 main();
+
+async function download() {
+  await main();
+  await downloadAll();
+}
+
+async function downloadAll() {
+    for (const mod of mods) {
+      downloadFile(mod.url, downloadFolder + "/" + mod.fileName);
+    }
+}
+
+function none() {
+
+}
+const commands = {
+  download: download,
+  gen: none 
+};
+
+(async () => {
+  const [, , fnName, ...args] = process.argv;
+  if (!fnName || !commands[fnName]) {
+    console.error("Usage: node pack.js <functionName> [args...]");
+    process.exit(1);
+  }
+
+  await commands[fnName](...args);
+})();

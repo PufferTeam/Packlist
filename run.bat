@@ -1,2 +1,2 @@
-node pack.js
+node pack.js gen
 pause
