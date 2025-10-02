@@ -1,0 +1,15 @@
+{
+    "mods": {
+        "antiquities": {
+            "name": "Antiquities",
+            "type": "github",
+            "link": "https://github.com/PufferTeam-ModArchive/Antiquities/releases/download/0.2.33/antiquities-0.2.33.jar"
+        },
+        "thaumcraft": {
+            "name": "Thaumcraft",
+            "type": "curseforge",
+            "project-id": 223628,
+            "file-id": 2227552
+        }
+    }
+}
