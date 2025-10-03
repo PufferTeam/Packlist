@@ -5,7 +5,6 @@ const cf = require("curseforge-api");
 const path = require("path");
 
 console.log("Running pack.js..");
-var firstRun = true;
 
 
 const text = fs.readFileSync('./cf-key.txt', 'utf8');
@@ -26,7 +25,6 @@ if (!fs.existsSync(cachePath)) {
     cache = {};
     fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
   }
-  firstRun = false;
 }
 
 const packwizFolder = "./mods";
@@ -216,14 +214,11 @@ async function generateData() {
     const fileName = await getFileNameFromUrl(url);
     var hash = undefined;
     var hash2 = undefined;
-    if (firstRun) {
+    if (cache[mod.key] == undefined) {
       hash = await getFileHashFromUrl("sha256", url);
-    } else {
-      hash = cache[mod.key]["hash"];
-    }
-    if (firstRun) {
       hash2 = await getFileHashFromUrl("md5", url);
     } else {
+      hash = cache[mod.key]["hash"];
       hash2 = cache[mod.key]["hash2"];
     }
 
