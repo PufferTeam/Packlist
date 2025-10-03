@@ -2,16 +2,43 @@ const fs = require('fs');
 const { https } = require("follow-redirects");
 const crypto = require('crypto');
 const cf = require("curseforge-api");
+const path = require("path");
 
 console.log("Running pack.js..");
+var firstRun = true;
+
+
 const text = fs.readFileSync('./cf-key.txt', 'utf8');
 const client = new cf.CurseForgeClient(text);
-const file = JSON.parse(fs.readFileSync('./mods.json', 'utf8'));
 
+const file = JSON.parse(fs.readFileSync('./mods.json', 'utf8'));
 var mods = [];
+const cachePath = path.join(__dirname, "cache.json");
+
+let cache;
+if (!fs.existsSync(cachePath)) {
+  cache = {};
+  fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
+} else {
+  try {
+    cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+  } catch (err) {
+    cache = {};
+    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
+  }
+  firstRun = false;
+}
+
 const packwizFolder = "./mods";
 const downloadFolder = "./download";
 const fileDirectorFolder = "./config/mod-director"
+
+function sanitizeFileName(name) {
+  return name
+    .replace(/%20/g, " ")     // turn %20 into actual spaces
+    .replace(/%[A-F0-9]{2}/g, "+") // replace any other %xx with "+"
+    .trim();
+}
 
 async function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
@@ -119,7 +146,7 @@ function getFileNameFromUrl(url) {
   return fileName;
 }
 
-async function getFileSha256FromUrl(fileUrl) {
+async function getFileHashFromUrl(hashText, fileUrl) {
   return new Promise((resolve, reject) => {
     https.get(fileUrl, (response) => {
       if (response.statusCode !== 200) {
@@ -127,7 +154,7 @@ async function getFileSha256FromUrl(fileUrl) {
         return;
       }
 
-      const hash = crypto.createHash("sha256");
+      const hash = crypto.createHash(hashText);
       response.on("data", (chunk) => hash.update(chunk));
       response.on("end", () => resolve(hash.digest("hex")));
       response.on("error", reject);
@@ -155,10 +182,14 @@ function parseFile() {
     if (mod.client != undefined) {
       isClientMod = mod.client;
     }
+    let folderName = undefined;
+    if (mod.folder != undefined) {
+      folderName = mod.folder;
+    }
     if (mod.type == "github") {
-      mods.push({ key: key, name: mod.name, type: mod.type, link: mod.link, client: isClientMod, fileName: null, hash: null, url: null });
+      mods.push({ key: key, name: mod.name, type: mod.type, link: mod.link, client: isClientMod, fileName: null, hash: null, url: null, folder: folderName });
     } else if (mod.type == "curseforge" || mod.type == "modrinth") {
-      mods.push({ key: key, name: mod.name, type: mod.type, pID: mod["project-id"], fID: mod["file-id"], client: isClientMod, fileName: null, hash: null, url: null });
+      mods.push({ key: key, name: mod.name, type: mod.type, pID: mod["project-id"], fID: mod["file-id"], client: isClientMod, fileName: null, hash: null, url: null, folder: folderName });
     }
   });
 }
@@ -183,12 +214,30 @@ async function generateData() {
     }
 
     const fileName = await getFileNameFromUrl(url);
-    const hash = await getFileSha256FromUrl(url);
+    var hash = undefined;
+    var hash2 = undefined;
+    if (firstRun) {
+      hash = await getFileHashFromUrl("sha256", url);
+    } else {
+      hash = cache[mod.key]["hash"];
+    }
+    if (firstRun) {
+      hash2 = await getFileHashFromUrl("md5", url);
+    } else {
+      hash2 = cache[mod.key]["hash2"];
+    }
 
-    mods[i]["fileName"] = fileName;
+    if (cache != null) {
+      cache[mod.key] = { hash: hash, hash2: hash2 };
+    }
+
+    mods[i]["fileName"] = sanitizeFileName(fileName);
     mods[i]["hash"] = hash;
+    mods[i]["hash2"] = hash2;
     mods[i]["url"] = url;
   }
+  const formatedCache = JSON.stringify(cache, null, 2);
+  write('./cache.json', formatedCache)
 }
 
 async function generatePackwiz() {
@@ -202,7 +251,11 @@ async function generatePackwiz() {
 
     fileC.push(`name = "${mod.name}"`);
 
-    fileC.push(`filename = "${mod.fileName}"`);
+    let prefix = "";
+    if (mod.folder != undefined) {
+      prefix = `./${mod.folder}/`
+    }
+    fileC.push(`filename = "${prefix}${mod.fileName}"`);
     fileC.push(`side = "${clientString}"`);
     fileC.push('');
     fileC.push('[download]')
@@ -221,8 +274,8 @@ async function generatePackwiz() {
         fileC.push(`file-id = ${mod.fID}`)
         fileC.push(`project-id = ${mod.pID}`)
       } else {
-        fileC.push(`mod-id = ${mod.pID}`)
-        fileC.push(`version = ${mod.fID}`)
+        fileC.push(`mod-id = "${mod.pID}"`)
+        fileC.push(`version = "${mod.fID}"`)
       }
 
     }
@@ -239,26 +292,35 @@ async function generateFileDirector() {
   for (const mod of mods) {
     let modEntry = {};
     let installation = {
-      continueOnFailedDownload: false,
+      continueOnFailedDownload: true,
       selectedByDefault: true,
       name: mod.name
     };
     let meta = {
       hash: {
+        MD5: mod.hash2,
         "SHA-256": mod.hash
       }
     };
+    let options = {
+      launchwrapperTweakerForceNext: true
+    }
     if (mod.client) {
       meta.side = "CLIENT";
     }
+    modEntry.fileName = mod.fileName;
     if (mod.type == "github") {
       modEntry.url = mod.url;
     } else if (mod.type == "curseforge" || mod.type == "modrinth") {
       modEntry.addonId = mod.pID;
       modEntry.fileId = mod.fID;
     }
+    if (mod.folder != undefined) {
+      modEntry.folder = "./mods/" + mod.folder + "/";
+    }
     modEntry.installationPolicy = installation;
     modEntry.metadata = meta;
+    modEntry.options = options;
     if (mod.type === "github") {
       modBundle.url.push(modEntry);
     } else if (mod.type === "curseforge") {
@@ -284,9 +346,9 @@ async function download() {
 }
 
 async function downloadAll() {
-    for (const mod of mods) {
-      downloadFile(mod.url, downloadFolder + "/" + mod.fileName);
-    }
+  for (const mod of mods) {
+    downloadFile(mod.url, downloadFolder + "/" + mod.fileName);
+  }
 }
 
 function none() {
@@ -294,7 +356,7 @@ function none() {
 }
 const commands = {
   download: download,
-  gen: none 
+  gen: none
 };
 
 (async () => {

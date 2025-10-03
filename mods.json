@@ -7,6 +7,7 @@
         },
         "thaumcraft": {
             "name": "Thaumcraft",
+            "folder": "1.7.10",
             "type": "curseforge",
             "project-id": 223628,
             "file-id": 2227552
