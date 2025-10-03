@@ -214,16 +214,16 @@ async function generateData() {
     const fileName = await getFileNameFromUrl(url);
     var hash = undefined;
     var hash2 = undefined;
-    if (cache[mod.key] == undefined) {
+    if (cache[fileName] == undefined) {
       hash = await getFileHashFromUrl("sha256", url);
       hash2 = await getFileHashFromUrl("md5", url);
     } else {
-      hash = cache[mod.key]["hash"];
-      hash2 = cache[mod.key]["hash2"];
+      hash = cache[fileName]["hash"];
+      hash2 = cache[fileName]["hash2"];
     }
 
     if (cache != null) {
-      cache[mod.key] = { hash: hash, hash2: hash2 };
+      cache[fileName] = { hash: hash, hash2: hash2 };
     }
 
     mods[i]["fileName"] = sanitizeFileName(fileName);
